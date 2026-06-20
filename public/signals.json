@@ -1,0 +1,57 @@
+{
+  "signals": [
+    {
+      "id": "signal_01",
+      "vhfRange": [42, 48],
+      "uhfRange": [210, 220],
+      "antennaAngle": [35, 55],
+      "name": "Emergency Broadcast",
+      "fragmentPath": "#001101010111001010100111",
+      "description": "Emergency Alert System - Do not look behind you",
+      "intensity": 0.85,
+      "weatherAffected": true
+    },
+    {
+      "id": "signal_02",
+      "vhfRange": [88, 95],
+      "uhfRange": [530, 545],
+      "antennaAngle": [110, 140],
+      "name": "Lost Tape #7",
+      "fragmentPath": "#100010101110011010101110",
+      "description": "We will find you",
+      "intensity": 0.72,
+      "weatherAffected": false
+    },
+    {
+      "id": "signal_03",
+      "vhfRange": [174, 182],
+      "uhfRange": [470, 482],
+      "antennaAngle": [200, 220],
+      "name": "Static Whispers",
+      "fragmentPath": "#010110101001110100101011",
+      "description": "The numbers: 7-4-9-2",
+      "intensity": 0.9,
+      "weatherAffected": true
+    },
+    {
+      "id": "signal_04",
+      "vhfRange": [208, 216],
+      "uhfRange": [690, 705],
+      "antennaAngle": [280, 305],
+      "name": "VHS Archive",
+      "fragmentPath": "#110101010111001011010010",
+      "description": "1987/03/15 - DO NOT WATCH",
+      "intensity": 0.65,
+      "weatherAffected": true
+    }
+  ],
+  "weatherConfig": {
+    "baseOffset": {
+      "vhfShift": [-8, 8],
+      "uhfShift": [-15, 15],
+      "antennaShift": [-20, 20]
+    },
+    "intervalMs": 4000,
+    "stormIntensity": 0.6
+  }
+}

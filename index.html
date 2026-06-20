@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CHANNEL ZERO - CRT Tuner</title>
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <div id="app">
+    <div class="tv-frame">
+      <div class="tv-screen-container">
+        <canvas id="glCanvas"></canvas>
+        <div class="screen-glare"></div>
+        <div class="scanlines"></div>
+        <div id="signalOverlay" class="signal-overlay">
+          <div class="signal-name"></div>
+          <div class="signal-description"></div>
+          <div class="binary-stream"></div>
+        </div>
+      </div>
+      
+      <div class="tv-body">
+        <div class="brand-label">CHANNEL ZERO</div>
+        
+        <div class="controls-panel">
+          <div class="knob-group">
+            <div class="knob-label">VHF</div>
+            <div class="knob" id="vhfKnob" data-param="vhf">
+              <div class="knob-mark"></div>
+            </div>
+            <div class="knob-value" id="vhfValue">000</div>
+          </div>
+          
+          <div class="knob-group">
+            <div class="knob-label">UHF</div>
+            <div class="knob" id="uhfKnob" data-param="uhf">
+              <div class="knob-mark"></div>
+            </div>
+            <div class="knob-value" id="uhfValue">000</div>
+          </div>
+          
+          <div class="knob-group">
+            <div class="knob-label">ANTENNA</div>
+            <div class="knob" id="antennaKnob" data-param="antenna">
+              <div class="knob-mark"></div>
+            </div>
+            <div class="knob-value" id="antennaValue">000°</div>
+          </div>
+        </div>
+        
+        <div class="status-bar">
+          <div class="signal-meter">
+            <div class="signal-meter-label">SIGNAL</div>
+            <div class="signal-meter-bar">
+              <div class="signal-meter-fill" id="signalFill"></div>
+            </div>
+          </div>
+          <div class="weather-indicator">
+            <span class="weather-icon">⛈</span>
+            <span class="weather-label">STORM</span>
+          </div>
+          <button class="power-button" id="audioToggle">
+            <span class="power-icon">◉</span>
+            <span class="power-label">AUDIO</span>
+          </button>
+        </div>
+        
+        <div class="instructions">
+          <div>Drag knobs to tune • Scroll to fine-tune</div>
+          <div id="foundCount">Signals found: 0 / 4</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

@@ -1,0 +1,55 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+dist/
+build/
+out/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Caches and temporary files
+.cache/
+.vite/
+.parcel-cache/
+.next/cache/
+coverage/
+.nyc_output/
+.eslintcache
+*.tsbuildinfo
+.tmp/
+tmp/
+temp/
+
+# OS / editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Large archives / binary bundles
+*.zip
+*.7z
+*.rar
+*.tar
+*.tar.gz
+*.tgz
+*.gz
+*.iso
+*.dmg
+*.exe
+*.msi

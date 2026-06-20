@@ -1,0 +1,330 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #0a0a0a;
+  font-family: 'Courier New', monospace;
+}
+
+#app {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: 
+    radial-gradient(ellipse at center, #1a0f0f 0%, #0a0a0a 60%, #000000 100%);
+}
+
+.tv-frame {
+  background: linear-gradient(145deg, #2a2420, #1a1410);
+  border-radius: 18px;
+  padding: 28px;
+  box-shadow:
+    0 0 0 4px #0a0806,
+    0 0 0 8px #1a1410,
+    0 25px 80px rgba(0, 0, 0, 0.9),
+    inset 0 2px 4px rgba(255, 255, 255, 0.05);
+}
+
+.tv-screen-container {
+  position: relative;
+  width: 640px;
+  height: 480px;
+  background: #000;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow:
+    inset 0 0 100px rgba(0, 0, 0, 0.9),
+    0 0 40px rgba(0, 0, 0, 0.8);
+}
+
+#glCanvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  filter: contrast(1.05) saturate(0.85);
+}
+
+.screen-glare {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, transparent 40%),
+    radial-gradient(ellipse at 20% 10%, rgba(255, 255, 255, 0.04) 0%, transparent 50%);
+  pointer-events: none;
+}
+
+.scanlines {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    rgba(0, 0, 0, 0.15) 1px,
+    transparent 2px,
+    transparent 3px
+  );
+  pointer-events: none;
+  mix-blend-mode: multiply;
+}
+
+.signal-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 40px;
+  color: #00ff88;
+  text-shadow: 0 0 10px #00ff88, 0 0 20px rgba(0, 255, 136, 0.5);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.signal-overlay.active {
+  opacity: 1;
+}
+
+.signal-name {
+  font-size: 28px;
+  font-weight: bold;
+  letter-spacing: 4px;
+  margin-bottom: 16px;
+  text-transform: uppercase;
+  animation: flickerText 0.15s infinite;
+}
+
+.signal-description {
+  font-size: 18px;
+  letter-spacing: 2px;
+  margin-bottom: 24px;
+  color: #aaffcc;
+  animation: flickerText 0.2s infinite;
+}
+
+.binary-stream {
+  font-size: 12px;
+  letter-spacing: 3px;
+  color: #00ff66;
+  opacity: 0.8;
+  max-width: 100%;
+  word-break: break-all;
+  text-align: center;
+}
+
+@keyframes flickerText {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.75; }
+  75% { opacity: 0.9; }
+}
+
+.tv-body {
+  margin-top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.brand-label {
+  text-align: center;
+  color: #5a4a3a;
+  font-size: 14px;
+  letter-spacing: 8px;
+  font-weight: bold;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+.controls-panel {
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  padding: 16px 24px;
+  background: linear-gradient(145deg, #1a1410, #0f0c08);
+  border-radius: 8px;
+  box-shadow:
+    inset 0 2px 6px rgba(0, 0, 0, 0.8),
+    inset 0 -1px 2px rgba(255, 255, 255, 0.03);
+}
+
+.knob-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.knob-label {
+  color: #6a5a4a;
+  font-size: 11px;
+  letter-spacing: 2px;
+  font-weight: bold;
+}
+
+.knob {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 35% 30%, #4a4035 0%, #2a2420 40%, #1a1410 100%);
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.7),
+    inset 0 2px 4px rgba(255, 255, 255, 0.08),
+    inset 0 -2px 6px rgba(0, 0, 0, 0.6);
+  position: relative;
+  cursor: grab;
+  user-select: none;
+  transition: transform 0.05s ease;
+}
+
+.knob:active {
+  cursor: grabbing;
+}
+
+.knob-mark {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  width: 3px;
+  height: 16px;
+  background: linear-gradient(to bottom, #ffaa44, #ff6622);
+  border-radius: 2px;
+  transform: translateX(-50%);
+  box-shadow: 0 0 6px rgba(255, 170, 68, 0.6);
+}
+
+.knob-value {
+  color: #cc8844;
+  font-size: 14px;
+  font-weight: bold;
+  text-shadow: 0 0 6px rgba(255, 136, 68, 0.4);
+  min-width: 56px;
+  text-align: center;
+}
+
+.status-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 20px;
+  background: linear-gradient(145deg, #1a1410, #0f0c08);
+  border-radius: 6px;
+  gap: 20px;
+}
+
+.signal-meter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+}
+
+.signal-meter-label {
+  color: #5a4a3a;
+  font-size: 10px;
+  letter-spacing: 2px;
+  font-weight: bold;
+}
+
+.signal-meter-bar {
+  flex: 1;
+  height: 12px;
+  background: #0a0806;
+  border-radius: 3px;
+  overflow: hidden;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.8);
+}
+
+.signal-meter-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(to right, #331100, #ff3300, #ffaa00, #00ff66);
+  transition: width 0.1s ease;
+  box-shadow: 0 0 10px rgba(0, 255, 102, 0.5);
+}
+
+.weather-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #4a6a8a;
+  font-size: 12px;
+  font-weight: bold;
+  letter-spacing: 1px;
+}
+
+.weather-icon {
+  font-size: 18px;
+  animation: stormFlicker 0.5s infinite;
+}
+
+@keyframes stormFlicker {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.power-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: linear-gradient(145deg, #3a1010, #1a0505);
+  border: 1px solid #4a2020;
+  border-radius: 4px;
+  color: #ff4444;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-shadow: 0 0 6px rgba(255, 68, 68, 0.5);
+}
+
+.power-button:hover {
+  background: linear-gradient(145deg, #5a2020, #2a0a0a);
+  box-shadow: 0 0 12px rgba(255, 68, 68, 0.3);
+}
+
+.power-button.active {
+  background: linear-gradient(145deg, #1a4a1a, #052005);
+  border-color: #2a5a2a;
+  color: #44ff44;
+  text-shadow: 0 0 6px rgba(68, 255, 68, 0.5);
+}
+
+.power-icon {
+  font-size: 14px;
+}
+
+.instructions {
+  text-align: center;
+  color: #4a443a;
+  font-size: 11px;
+  letter-spacing: 1px;
+  display: flex;
+  justify-content: space-between;
+  padding: 0 8px;
+}
+
+#foundCount {
+  color: #6a5a3a;
+}
