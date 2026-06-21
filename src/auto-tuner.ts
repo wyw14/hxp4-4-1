@@ -30,23 +30,35 @@ const RANGES: Record<KnobParam, { min: number; max: number }> = {
   antenna: { min: 0, max: 360 }
 };
 
-const COARSE_STEPS: Record<KnobParam, number> = {
-  vhf: 25,
-  uhf: 70,
-  antenna: 36
+const COARSE_GRID: Record<KnobParam, number> = {
+  vhf: 50,
+  uhf: 140,
+  antenna: 72
 };
 
-const FINE_STEPS: Record<KnobParam, number> = {
-  vhf: 3,
-  uhf: 6,
-  antenna: 5
+const FINE_INITIAL_STEP: Record<KnobParam, number> = {
+  vhf: 8,
+  uhf: 15,
+  antenna: 12
 };
 
-const FINE_RANGE: Record<KnobParam, number> = {
-  vhf: 40,
-  uhf: 100,
-  antenna: 60
+const FINE_MIN_STEP: Record<KnobParam, number> = {
+  vhf: 1,
+  uhf: 2,
+  antenna: 2
 };
+
+const PARAM_NAMES: Record<KnobParam, string> = {
+  vhf: 'VHF',
+  uhf: 'UHF',
+  antenna: '天线'
+};
+
+interface ScanPoint {
+  tuner: TunerState;
+  strength: number;
+  match: SignalMatch;
+}
 
 export class AutoTuner {
   private signals: Signal[];
@@ -99,8 +111,15 @@ export class AutoTuner {
 
     try {
       const result = await this.runScan();
-      this.onComplete(result);
+
+      if (!this.cancellationRequested) {
+        this.onComplete(result);
+      }
     } finally {
+      if (this.cancellationRequested) {
+        this._currentPhase = 'cancelled';
+        this.emitProgress('cancelled', 0, null, 0, 0, '扫描已取消');
+      }
       this.isScanning = false;
       this.cancellationRequested = false;
     }
@@ -110,214 +129,317 @@ export class AutoTuner {
     const foundSignals: Signal[] = [];
     const foundSignalIds = new Set<string>();
 
-    let bestTuner: TunerState = { vhf: 100, uhf: 400, antenna: 180 };
-    let bestStrength: number = 0;
-    let bestMatch: SignalMatch = { signal: null, strength: 0, vhfMatch: 0, uhfMatch: 0, antennaMatch: 0 };
+    let globalBest: ScanPoint = {
+      tuner: { vhf: 100, uhf: 400, antenna: 180 },
+      strength: 0,
+      match: { signal: null, strength: 0, vhfMatch: 0, uhfMatch: 0, antennaMatch: 0 }
+    };
 
     const currentTuner: TunerState = { vhf: 100, uhf: 400, antenna: 180 };
 
     this._currentPhase = 'coarse';
     this.emitProgress('coarse', 0, null, 0, 0, '启动自动搜台...');
 
-    const coarsePeaks: Array<{ tuner: TunerState; strength: number; match: SignalMatch }> = [];
-
-    for (const param of ['vhf', 'uhf', 'antenna'] as KnobParam[]) {
-      if (this.cancellationRequested) {
-        this._currentPhase = 'cancelled';
-        this.emitProgress('cancelled', 0, null, 0, 0, '扫描已取消');
-        return { bestTuner, bestStrength, bestMatch, signalsFound: foundSignals };
+    const trackSignal = (match: SignalMatch, strength: number): void => {
+      if (match.signal && !foundSignalIds.has(match.signal.id) && strength > 0.5) {
+        foundSignalIds.add(match.signal.id);
+        foundSignals.push(match.signal);
       }
+    };
 
-      const peaks = await this.coarseScanParam(param, currentTuner, (tuner, strength, match) => {
-        if (match.signal && !foundSignalIds.has(match.signal.id) && strength > 0.5) {
-          foundSignalIds.add(match.signal.id);
-          foundSignals.push(match.signal);
-        }
-        if (strength > bestStrength) {
-          bestStrength = strength;
-          bestTuner = { ...tuner };
-          bestMatch = match;
-        }
-      });
-      coarsePeaks.push(...peaks);
+    const updateGlobalBest = (point: ScanPoint): void => {
+      if (point.strength > globalBest.strength) {
+        globalBest = { ...point, tuner: { ...point.tuner }, match: { ...point.match } };
+      }
+    };
+
+    const coarsePoints = await this.coarseScan3D(currentTuner, (point) => {
+      trackSignal(point.match, point.strength);
+      updateGlobalBest(point);
+    });
+
+    if (this.cancellationRequested) {
+      return {
+        bestTuner: globalBest.tuner,
+        bestStrength: globalBest.strength,
+        bestMatch: globalBest.match,
+        signalsFound: foundSignals
+      };
     }
 
-    coarsePeaks.sort((a, b) => b.strength - a.strength);
-    const topPeaks = coarsePeaks.slice(0, 3);
+    const candidates = coarsePoints
+      .sort((a, b) => b.strength - a.strength)
+      .slice(0, 3)
+      .filter(p => p.strength > 0.15);
+
+    if (candidates.length === 0) {
+      candidates.push(globalBest);
+    }
 
     this._currentPhase = 'fine';
 
-    for (let i = 0; i < topPeaks.length; i++) {
+    for (let i = 0; i < candidates.length; i++) {
       if (this.cancellationRequested) {
-        this._currentPhase = 'cancelled';
-        this.emitProgress('cancelled', 0, null, 0, 0, '扫描已取消');
-        return { bestTuner, bestStrength, bestMatch, signalsFound: foundSignals };
+        return {
+          bestTuner: globalBest.tuner,
+          bestStrength: globalBest.strength,
+          bestMatch: globalBest.match,
+          signalsFound: foundSignals
+        };
       }
 
-      const peak = topPeaks[i];
-      this.emitProgress('fine', (i / topPeaks.length) * 100, null, 0, peak.strength,
-        `精扫峰值点 ${i + 1}/${topPeaks.length}...`);
+      const candidate = candidates[i];
+      this.emitProgress('fine', (i / candidates.length) * 100, null, 0, candidate.strength,
+        `精扫候选点 ${i + 1}/${candidates.length} (${(candidate.strength * 100).toFixed(0)}%)...`);
 
-      await this.sleep(300);
+      await this.sleep(200);
 
-      const fineResult = await this.fineScan(peak.tuner, (tuner, strength, match) => {
-        if (match.signal && !foundSignalIds.has(match.signal.id) && strength > 0.5) {
-          foundSignalIds.add(match.signal.id);
-          foundSignals.push(match.signal);
-        }
-        if (strength > bestStrength) {
-          bestStrength = strength;
-          bestTuner = { ...tuner };
-          bestMatch = match;
-        }
+      const fineResult = await this.fineScanGradient(candidate.tuner, currentTuner, (point) => {
+        trackSignal(point.match, point.strength);
+        updateGlobalBest(point);
       });
 
-      if (fineResult.strength > bestStrength) {
-        bestStrength = fineResult.strength;
-        bestTuner = { ...fineResult.tuner };
-        bestMatch = fineResult.match;
+      if (fineResult.strength > globalBest.strength) {
+        globalBest = { ...fineResult, tuner: { ...fineResult.tuner }, match: { ...fineResult.match } };
+      }
+
+      if (this.cancellationRequested) {
+        return {
+          bestTuner: globalBest.tuner,
+          bestStrength: globalBest.strength,
+          bestMatch: globalBest.match,
+          signalsFound: foundSignals
+        };
       }
     }
 
-    this.emitProgress('fine', 100, null, 0, bestStrength, '定位最佳位置...');
-    await this.sleep(500);
+    if (this.cancellationRequested) {
+      return {
+        bestTuner: globalBest.tuner,
+        bestStrength: globalBest.strength,
+        bestMatch: globalBest.match,
+        signalsFound: foundSignals
+      };
+    }
 
-    await this.smoothMoveTo(bestTuner, currentTuner);
+    this.emitProgress('fine', 100, null, 0, globalBest.strength, '定位最佳位置...');
+    await this.sleep(300);
+
+    if (this.cancellationRequested) {
+      return {
+        bestTuner: globalBest.tuner,
+        bestStrength: globalBest.strength,
+        bestMatch: globalBest.match,
+        signalsFound: foundSignals
+      };
+    }
+
+    await this.smoothMoveTo(globalBest.tuner, currentTuner);
+
+    if (this.cancellationRequested) {
+      return {
+        bestTuner: globalBest.tuner,
+        bestStrength: globalBest.strength,
+        bestMatch: globalBest.match,
+        signalsFound: foundSignals
+      };
+    }
 
     this._currentPhase = 'complete';
-    this.emitProgress('complete', 100, null, 0, bestStrength,
-      bestMatch.signal ? `锁定: ${bestMatch.signal.name}` : '扫描完成');
+    this.emitProgress('complete', 100, null, 0, globalBest.strength,
+      globalBest.match.signal ? `锁定: ${globalBest.match.signal.name}` : '扫描完成');
 
-    return { bestTuner, bestStrength, bestMatch, signalsFound: foundSignals };
+    return {
+      bestTuner: globalBest.tuner,
+      bestStrength: globalBest.strength,
+      bestMatch: globalBest.match,
+      signalsFound: foundSignals
+    };
   }
 
-  private async coarseScanParam(
-    param: KnobParam,
+  private async coarseScan3D(
     currentTuner: TunerState,
-    onReading: (tuner: TunerState, strength: number, match: SignalMatch) => void
-  ): Promise<Array<{ tuner: TunerState; strength: number; match: SignalMatch }>> {
-    const range = RANGES[param];
-    const step = COARSE_STEPS[param];
-    const peaks: Array<{ tuner: TunerState; strength: number; match: SignalMatch }> = [];
+    onPoint: (point: ScanPoint) => void
+  ): Promise<ScanPoint[]> {
+    const points: ScanPoint[] = [];
 
-    const paramNames: Record<KnobParam, string> = {
-      vhf: 'VHF',
-      uhf: 'UHF',
-      antenna: '天线'
+    const vhfValues = this.generateGridValues('vhf');
+    const uhfValues = this.generateGridValues('uhf');
+    const antennaValues = this.generateGridValues('antenna');
+
+    const totalPoints = vhfValues.length * uhfValues.length * antennaValues.length;
+    let completedPoints = 0;
+
+    for (const vhf of vhfValues) {
+      for (const uhf of uhfValues) {
+        for (const antenna of antennaValues) {
+          if (this.cancellationRequested) return points;
+
+          currentTuner.vhf = vhf;
+          currentTuner.uhf = uhf;
+          currentTuner.antenna = antenna;
+
+          this.setTunerKnobs(currentTuner);
+          this.onTunerChange({ ...currentTuner });
+
+          await this.sleep(50);
+
+          const match = findBestSignalMatch(currentTuner, this.signals, this.getWeatherOffset());
+          const strength = match.strength;
+
+          const point: ScanPoint = {
+            tuner: { ...currentTuner },
+            strength,
+            match
+          };
+
+          points.push(point);
+          onPoint(point);
+
+          completedPoints++;
+          const progress = (completedPoints / totalPoints) * 100;
+          this.emitProgress('coarse', progress, 'vhf', vhf, strength,
+            `粗扫网格: VHF=${Math.round(vhf)}, UHF=${Math.round(uhf)}, 天线=${Math.round(antenna)}°`);
+        }
+      }
+    }
+
+    return points;
+  }
+
+  private generateGridValues(param: KnobParam): number[] {
+    const range = RANGES[param];
+    const step = COARSE_GRID[param];
+    const values: number[] = [];
+
+    for (let value = range.min; value <= range.max; value += step) {
+      values.push(clamp(value, range.min, range.max));
+    }
+
+    if (values[values.length - 1] < range.max) {
+      values.push(range.max);
+    }
+
+    return values;
+  }
+
+  private async fineScanGradient(
+    center: TunerState,
+    currentTuner: TunerState,
+    onPoint: (point: ScanPoint) => void
+  ): Promise<ScanPoint> {
+    let best: ScanPoint = {
+      tuner: { ...center },
+      strength: 0,
+      match: { signal: null, strength: 0, vhfMatch: 0, uhfMatch: 0, antennaMatch: 0 }
     };
 
-    const totalSteps = Math.ceil((range.max - range.min) / step);
+    currentTuner.vhf = center.vhf;
+    currentTuner.uhf = center.uhf;
+    currentTuner.antenna = center.antenna;
 
-    let readings: Array<{ value: number; strength: number; match: SignalMatch }> = [];
+    const initialMatch = await this.measurePoint(currentTuner, onPoint);
+    best = { ...initialMatch, tuner: { ...initialMatch.tuner }, match: { ...initialMatch.match } };
 
-    for (let i = 0; i <= totalSteps; i++) {
-      if (this.cancellationRequested) return peaks;
+    let stepSizes: Record<KnobParam, number> = { ...FINE_INITIAL_STEP };
+    let iterations = 0;
+    const maxIterations = 8;
 
-      const value = clamp(range.min + i * step, range.min, range.max);
-      currentTuner[param] = value;
+    while (iterations < maxIterations && !this.cancellationRequested) {
+      let improved = false;
 
-      this.knobController.setValue(param, value);
-      this.onTunerChange({ ...currentTuner });
-
-      await this.sleep(60);
-
-      const match = findBestSignalMatch(currentTuner, this.signals, this.getWeatherOffset());
-      const strength = match.strength;
-
-      readings.push({ value, strength, match });
-      onReading({ ...currentTuner }, strength, match);
-
-      const progress = (i / totalSteps) * 100;
-      this.emitProgress('coarse', progress, param, value, strength,
-        `粗扫 ${paramNames[param]}: ${Math.round(value)}`);
-    }
-
-    for (let i = 1; i < readings.length - 1; i++) {
-      const prev = readings[i - 1];
-      const curr = readings[i];
-      const next = readings[i + 1];
-
-      if (curr.strength > prev.strength && curr.strength > next.strength && curr.strength > 0.2) {
-        const peakTuner = { ...currentTuner };
-        peakTuner[param] = curr.value;
-        peaks.push({ tuner: peakTuner, strength: curr.strength, match: curr.match });
-      }
-    }
-
-    if (readings.length > 0) {
-      const maxReading = readings.reduce((max, r) => r.strength > max.strength ? r : max, readings[0]);
-      if (maxReading.strength > 0.2) {
-        const peakTuner = { ...currentTuner };
-        peakTuner[param] = maxReading.value;
-        const exists = peaks.some(p => Math.abs(p.tuner[param] - maxReading.value) < step);
-        if (!exists) {
-          peaks.push({ tuner: peakTuner, strength: maxReading.strength, match: maxReading.match });
-        }
-      }
-    }
-
-    return peaks;
-  }
-
-  private async fineScan(
-    startTuner: TunerState,
-    onReading: (tuner: TunerState, strength: number, match: SignalMatch) => void
-  ): Promise<{ tuner: TunerState; strength: number; match: SignalMatch }> {
-    const currentTuner = { ...startTuner };
-    let best = { tuner: { ...startTuner }, strength: 0, match: null as unknown as SignalMatch };
-
-    for (const param of ['vhf', 'uhf', 'antenna'] as KnobParam[]) {
-      if (this.cancellationRequested) return best;
-
-      const range = RANGES[param];
-      const fineRange = FINE_RANGE[param];
-      const step = FINE_STEPS[param];
-      const center = startTuner[param];
-      const start = clamp(center - fineRange / 2, range.min, range.max);
-      const end = clamp(center + fineRange / 2, range.min, range.max);
-
-      const paramNames: Record<KnobParam, string> = {
-        vhf: 'VHF',
-        uhf: 'UHF',
-        antenna: '天线'
-      };
-
-      const totalSteps = Math.ceil((end - start) / step);
-
-      for (let i = 0; i <= totalSteps; i++) {
+      for (const param of ['vhf', 'uhf', 'antenna'] as KnobParam[]) {
         if (this.cancellationRequested) return best;
 
-        const value = clamp(start + i * step, range.min, range.max);
-        currentTuner[param] = value;
+        const step = stepSizes[param];
+        if (step < FINE_MIN_STEP[param]) continue;
 
-        this.knobController.setValue(param, value);
-        this.onTunerChange({ ...currentTuner });
+        const currentValue = best.tuner[param];
+        const range = RANGES[param];
 
-        await this.sleep(40);
+        const testUp = clamp(currentValue + step, range.min, range.max);
+        const testDown = clamp(currentValue - step, range.min, range.max);
 
-        const match = findBestSignalMatch(currentTuner, this.signals, this.getWeatherOffset());
-        const strength = match.strength;
+        currentTuner[param] = testUp;
+        const pointUp = await this.measurePoint(currentTuner, onPoint, param, iterations, maxIterations);
 
-        onReading({ ...currentTuner }, strength, match);
+        if (this.cancellationRequested) return best;
 
-        if (strength > best.strength) {
-          best = { tuner: { ...currentTuner }, strength, match };
+        currentTuner[param] = testDown;
+        const pointDown = await this.measurePoint(currentTuner, onPoint, param, iterations, maxIterations);
+
+        if (this.cancellationRequested) return best;
+
+        if (pointUp.strength > best.strength && pointUp.strength >= pointDown.strength) {
+          best = { ...pointUp, tuner: { ...pointUp.tuner }, match: { ...pointUp.match } };
+          currentTuner[param] = testUp;
+          improved = true;
+        } else if (pointDown.strength > best.strength) {
+          best = { ...pointDown, tuner: { ...pointDown.tuner }, match: { ...pointDown.match } };
+          currentTuner[param] = testDown;
+          improved = true;
+        } else {
+          currentTuner[param] = currentValue;
         }
 
-        const progress = 50 + (i / totalSteps) * 50;
-        this.emitProgress('fine', progress, param, value, strength,
-          `精扫 ${paramNames[param]}: ${Math.round(value)}`);
+        const baseProgress = 50 + (iterations / maxIterations) * 50;
+        this.emitProgress('fine', baseProgress, param, best.tuner[param], best.strength,
+          `精扫 ${PARAM_NAMES[param]}: ${Math.round(best.tuner[param])}${param === 'antenna' ? '°' : ''} (步长: ${step})`);
       }
 
-      currentTuner[param] = best.tuner[param];
-      this.knobController.setValue(param, best.tuner[param]);
-      this.onTunerChange({ ...currentTuner });
+      if (!improved) {
+        for (const param of ['vhf', 'uhf', 'antenna'] as KnobParam[]) {
+          stepSizes[param] = Math.max(stepSizes[param] * 0.5, FINE_MIN_STEP[param]);
+        }
+      }
+
+      iterations++;
     }
+
+    currentTuner.vhf = best.tuner.vhf;
+    currentTuner.uhf = best.tuner.uhf;
+    currentTuner.antenna = best.tuner.antenna;
+    this.setTunerKnobs(currentTuner);
+    this.onTunerChange({ ...currentTuner });
 
     return best;
   }
 
+  private async measurePoint(
+    tuner: TunerState,
+    onPoint: (point: ScanPoint) => void,
+    _param?: KnobParam,
+    _iteration?: number,
+    _maxIterations?: number
+  ): Promise<ScanPoint> {
+    this.setTunerKnobs(tuner);
+    this.onTunerChange({ ...tuner });
+
+    await this.sleep(35);
+
+    const match = findBestSignalMatch(tuner, this.signals, this.getWeatherOffset());
+    const strength = match.strength;
+
+    const point: ScanPoint = {
+      tuner: { ...tuner },
+      strength,
+      match
+    };
+
+    onPoint(point);
+
+    return point;
+  }
+
+  private setTunerKnobs(tuner: TunerState): void {
+    this.knobController.setValue('vhf', tuner.vhf);
+    this.knobController.setValue('uhf', tuner.uhf);
+    this.knobController.setValue('antenna', tuner.antenna);
+  }
+
   private async smoothMoveTo(target: TunerState, currentTuner: TunerState): Promise<void> {
+    if (this.cancellationRequested) return;
+
     const steps = 20;
     for (let i = 1; i <= steps; i++) {
       if (this.cancellationRequested) return;
@@ -341,6 +463,9 @@ export class AutoTuner {
     currentStrength: number,
     message: string
   ): void {
+    if (this.cancellationRequested && phase !== 'cancelled') {
+      return;
+    }
     this.onProgress({
       phase,
       progress,
