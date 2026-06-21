@@ -8,6 +8,7 @@ import {
   lerp,
   type SignalMatch
 } from './signal';
+import { AutoTuner, type ScanProgress, type ScanResult } from './auto-tuner';
 import type { Signal, SignalsData, TunerState, WeatherOffset } from './types';
 
 class Game {
@@ -15,6 +16,7 @@ class Game {
   private audioManager: AudioManager;
   private knobController: KnobController | null = null;
   private weatherSystem: WeatherSystem | null = null;
+  private autoTuner: AutoTuner | null = null;
 
   private signals: Signal[] = [];
   private tuner: TunerState = { vhf: 100, uhf: 400, antenna: 180 };
@@ -40,6 +42,11 @@ class Game {
     binaryStream: HTMLElement;
     foundCount: HTMLElement;
     audioToggle: HTMLButtonElement;
+    scanButton: HTMLButtonElement;
+    scanIcon: HTMLElement;
+    scanLabel: HTMLElement;
+    scanMessage: HTMLElement;
+    scanProgressFill: HTMLElement;
   };
 
   constructor() {
@@ -61,7 +68,12 @@ class Game {
       signalDescription: get('signalOverlay').querySelector('.signal-description') as HTMLElement,
       binaryStream: get('signalOverlay').querySelector('.binary-stream') as HTMLElement,
       foundCount: get('foundCount'),
-      audioToggle: get('audioToggle') as HTMLButtonElement
+      audioToggle: get('audioToggle') as HTMLButtonElement,
+      scanButton: get('scanButton') as HTMLButtonElement,
+      scanIcon: get('scanButton').querySelector('.scan-icon') as HTMLElement,
+      scanLabel: get('scanButton').querySelector('.scan-label') as HTMLElement,
+      scanMessage: get('scanMessage') as HTMLElement,
+      scanProgressFill: get('scanProgressFill') as HTMLElement
     };
   }
 
@@ -108,6 +120,25 @@ class Game {
       }
     ], (param: KnobParam, value: number) => {
       this.tuner[param] = value;
+    });
+
+    this.autoTuner = new AutoTuner(
+      this.signals,
+      this.knobController,
+      () => this.weatherOffset,
+      (tuner) => {
+        this.tuner = { ...tuner };
+      },
+      (progress) => this.handleScanProgress(progress),
+      (result) => this.handleScanComplete(result)
+    );
+
+    this.elements.scanButton.addEventListener('click', () => {
+      if (this.autoTuner?.isActive()) {
+        this.autoTuner.cancel();
+      } else {
+        this.autoTuner?.start();
+      }
     });
 
     this.elements.audioToggle.addEventListener('click', async () => {
@@ -191,6 +222,51 @@ class Game {
         display += Math.random() > 0.5 ? '1' : '0';
       }
       this.elements.binaryStream.textContent = display.substring(0, Math.min(len + extra, 80));
+    }
+  }
+
+  private handleScanProgress(progress: ScanProgress): void {
+    const isScanning = progress.phase === 'coarse' || progress.phase === 'fine';
+
+    if (isScanning) {
+      this.elements.scanButton.classList.add('scanning');
+      this.elements.scanIcon.classList.add('scanning');
+      this.elements.scanLabel.textContent = 'CANCEL';
+      this.elements.scanMessage.classList.add('scanning');
+      this.elements.scanMessage.classList.remove('error', 'success');
+      this.elements.scanProgressFill.classList.add('scanning');
+    } else if (progress.phase === 'cancelled') {
+      this.elements.scanButton.classList.remove('scanning');
+      this.elements.scanIcon.classList.remove('scanning');
+      this.elements.scanLabel.textContent = 'AUTO SCAN';
+      this.elements.scanMessage.classList.remove('scanning', 'success');
+      this.elements.scanMessage.classList.add('error');
+      this.elements.scanProgressFill.classList.remove('scanning');
+    } else if (progress.phase === 'complete') {
+      this.elements.scanButton.classList.remove('scanning');
+      this.elements.scanIcon.classList.remove('scanning');
+      this.elements.scanLabel.textContent = 'AUTO SCAN';
+      this.elements.scanMessage.classList.remove('scanning', 'error');
+      this.elements.scanMessage.classList.add('success');
+      this.elements.scanProgressFill.classList.remove('scanning');
+    }
+
+    this.elements.scanMessage.textContent = progress.message;
+    this.elements.scanProgressFill.style.width = `${progress.progress}%`;
+  }
+
+  private handleScanComplete(result: ScanResult): void {
+    for (const signal of result.signalsFound) {
+      if (!this.foundSignals.has(signal.id)) {
+        this.foundSignals.add(signal.id);
+      }
+    }
+    this.elements.foundCount.textContent = `Signals found: ${this.foundSignals.size} / ${this.signals.length}`;
+
+    if (result.bestMatch.signal && result.bestStrength > 0.5) {
+      this.elements.scanMessage.textContent = `锁定: ${result.bestMatch.signal.name} (信号强度: ${(result.bestStrength * 100).toFixed(0)}%)`;
+    } else {
+      this.elements.scanMessage.textContent = '扫描完成，未找到强信号';
     }
   }
 
